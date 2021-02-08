@@ -354,7 +354,7 @@ where
                             .zip(self.kernels.par_iter_mut())
                             .map(|((bases, exps), kern)| -> Result<<G as CurveAffine>::Projective, GPUError> {
                                 let mut acc = <G as CurveAffine>::Projective::zero();
-                                let jack_chunk_3080 = 33554466;
+                                let jack_chunk_3080 = (33554466 as f64 * 0.9) as usize;
                                 let mut jack_windows_size = 11;
                                 let size_result = std::mem::size_of::<<G as CurveAffine>::Projective>();
                                 if size_result > 144 {
