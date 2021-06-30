@@ -285,17 +285,44 @@ where
 {
     info!("Bellperson {} is being used!", BELLMAN_VERSION);
 
-    // Preparing things for the proofs is done a lot in parallel with the help of Rayon. Make
-    // sure that those things run on the correct thread pool.
-    let (start, mut provers, input_assignments, aux_assignments) =
-        THREAD_POOL.install(|| create_proof_batch_priority_inner(circuits))?;
+    THREAD_POOL.install(|| create_proof_batch_priority_inner(circuits, params, r_s, s_s, priority))
+}
 
-    // The rest of the proving also has parallelism, but not on the outer loops, but within e.g. the
-    // multiexp calculations. This is what the `Worker` is used for. It is important that calling
-    // `wait()` on the worker happens *outside* the thread pool, else deadlocks can happen.
+fn create_proof_batch_priority_inner<E, C, P: ParameterSource<E>>(
+    circuits: Vec<C>,
+    params: P,
+    r_s: Vec<E::Fr>,
+    s_s: Vec<E::Fr>,
+    priority: bool,
+) -> Result<Vec<Proof<E>>, SynthesisError>
+where
+    E: Engine,
+    C: Circuit<E> + Send,
+{
+    let mut provers = circuits
+        .into_par_iter()
+        .map(|circuit| -> Result<_, SynthesisError> {
+            let mut prover = ProvingAssignment::new();
+
+            prover.alloc_input(|| "", || Ok(E::Fr::one()))?;
+
+            circuit.synthesize(&mut prover)?;
+
+            for i in 0..prover.input_assignment.len() {
+                prover.enforce(|| "", |lc| lc + Variable(Index::Input(i)), |lc| lc, |lc| lc);
+            }
+
+            Ok(prover)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Start fft/multiexp prover timer
+    let start = Instant::now();
+    info!("starting proof timer");
+
     let worker = Worker::new();
-    let input_len = input_assignments[0].len();
-    let vk = params.get_vk(input_len)?.clone();
+    let input_len = provers[0].input_assignment.len();
+    let vk = params.get_vk(input_len)?;
     let n = provers[0].a.len();
 
     // Make sure all circuits have the same input len.
@@ -314,7 +341,6 @@ where
 
     #[cfg(feature = "gpu")]
     let prio_lock = if priority {
-        trace!("acquiring priority lock");
         Some(PriorityLock::lock())
     } else {
         None
@@ -371,6 +397,32 @@ where
             Ok(h)
         })
         .collect::<Result<Vec<_>, SynthesisError>>()?;
+
+    let input_assignments = provers
+        .par_iter_mut()
+        .map(|prover| {
+            let input_assignment = std::mem::replace(&mut prover.input_assignment, Vec::new());
+            Arc::new(
+                input_assignment
+                    .into_iter()
+                    .map(|s| s.into_repr())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let aux_assignments = provers
+        .par_iter_mut()
+        .map(|prover| {
+            let aux_assignment = std::mem::replace(&mut prover.aux_assignment, Vec::new());
+            Arc::new(
+                aux_assignment
+                    .into_iter()
+                    .map(|s| s.into_repr())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<Vec<_>>();
 
     let l_s = aux_assignments
         .iter()
@@ -464,7 +516,11 @@ where
             ))
         })
         .collect::<Result<Vec<_>, SynthesisError>>()?;
+
     drop(multiexp_kern);
+
+    #[cfg(feature = "gpu")]
+    drop(prio_lock);
 
     let proofs = h_s
         .into_iter()
@@ -522,81 +578,10 @@ where
         )
         .collect::<Result<Vec<_>, SynthesisError>>()?;
 
-    #[cfg(feature = "gpu")]
-    {
-        trace!("dropping priority lock");
-        drop(prio_lock);
-    }
-
     let proof_time = start.elapsed();
     info!("prover time: {:?}", proof_time);
 
     Ok(proofs)
-}
-
-fn create_proof_batch_priority_inner<E, C>(
-    circuits: Vec<C>,
-) -> Result<
-    (
-        Instant,
-        std::vec::Vec<ProvingAssignment<E>>,
-        std::vec::Vec<std::sync::Arc<std::vec::Vec<<E::Fr as PrimeField>::Repr>>>,
-        std::vec::Vec<std::sync::Arc<std::vec::Vec<<E::Fr as PrimeField>::Repr>>>,
-    ),
-    SynthesisError,
->
-where
-    E: Engine,
-    C: Circuit<E> + Send,
-{
-    let mut provers = circuits
-        .into_par_iter()
-        .map(|circuit| -> Result<_, SynthesisError> {
-            let mut prover = ProvingAssignment::new();
-
-            prover.alloc_input(|| "", || Ok(E::Fr::one()))?;
-
-            circuit.synthesize(&mut prover)?;
-
-            for i in 0..prover.input_assignment.len() {
-                prover.enforce(|| "", |lc| lc + Variable(Index::Input(i)), |lc| lc, |lc| lc);
-            }
-
-            Ok(prover)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    // Start fft/multiexp prover timer
-    let start = Instant::now();
-    info!("starting proof timer");
-
-    let input_assignments = provers
-        .par_iter_mut()
-        .map(|prover| {
-            let input_assignment = std::mem::replace(&mut prover.input_assignment, Vec::new());
-            Arc::new(
-                input_assignment
-                    .into_iter()
-                    .map(|s| s.into_repr())
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let aux_assignments = provers
-        .par_iter_mut()
-        .map(|prover| {
-            let aux_assignment = std::mem::replace(&mut prover.aux_assignment, Vec::new());
-            Arc::new(
-                aux_assignment
-                    .into_iter()
-                    .map(|s| s.into_repr())
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    Ok((start, provers, input_assignments, aux_assignments))
 }
 
 #[cfg(test)]
