@@ -1,5 +1,7 @@
 use std::sync::Arc;
 use std::time::Instant;
+// use std::thread;
+use std::sync::mpsc;
 
 use crate::bls::Engine;
 use ff::{Field, PrimeField};
@@ -11,13 +13,21 @@ use super::{ParameterSource, Proof};
 use crate::domain::{EvaluationDomain, Scalar};
 use crate::gpu::{LockedFFTKernel, LockedMultiexpKernel};
 use crate::multicore::{Worker, THREAD_POOL};
-use crate::multiexp::{multiexp, DensityTracker, FullDensity};
+use crate::multiexp::{
+    density_filter, multiexp, multiexp_fulldensity, multiexp_skipdensity, DensityTracker,
+    FullDensity,
+};
 use crate::{
     Circuit, ConstraintSystem, Index, LinearCombination, SynthesisError, Variable, BELLMAN_VERSION,
 };
 use log::info;
 #[cfg(feature = "gpu")]
 use log::trace;
+
+// use crossbeam_channel::{bounded, Receiver};
+
+extern crate scoped_threadpool;
+use scoped_threadpool::Pool;
 
 #[cfg(feature = "gpu")]
 use crate::gpu::PriorityLock;

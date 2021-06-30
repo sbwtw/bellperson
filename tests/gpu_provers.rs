@@ -57,6 +57,7 @@ pub fn test_parallel_prover() {
 
     // Higher prio circuit
     let c = DummyDemo {
+<<<<<<< HEAD
         #[cfg(not(feature = "_coverage"))]
         interations: 10_000,
         #[cfg(feature = "_coverage")]
@@ -68,6 +69,13 @@ pub fn test_parallel_prover() {
         interations: 500_000,
         #[cfg(feature = "_coverage")]
         interations: 5000,
+=======
+        interations: 1_000,
+    };
+    // Lower prio circuit
+    let c2 = DummyDemo {
+        interations: 5_000,
+>>>>>>> 2080Ti
     };
 
     let params = generate_random_parameters::<Bls12, _, _>(c.clone(), rng).unwrap();
