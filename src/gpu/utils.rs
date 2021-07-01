@@ -13,6 +13,7 @@ lazy_static::lazy_static! {
 
             // NVIDIA
             ("Quadro RTX 6000".to_string(), 4608),
+            ("Quadro RTX A6000".to_string(), 10752),
 
             ("TITAN RTX".to_string(), 4608),
 
@@ -23,7 +24,6 @@ lazy_static::lazy_static! {
 
             ("GeForce RTX 3090".to_string(), 10496),
             ("GeForce RTX 3080".to_string(), 8704),
-            ("NVIDIA GeForce RTX 3080".to_string(), 8704),
             ("GeForce RTX 3070".to_string(), 5888),
 
             ("GeForce RTX 2080 Ti".to_string(), 4352),
@@ -75,7 +75,7 @@ pub fn get_core_count(d: &opencl::Device) -> usize {
 }
 
 pub fn dump_device_list() {
-    for d in opencl::Device::all().unwrap() {
+    for d in opencl::Device::all() {
         info!("Device: {:?}", d);
     }
 }
