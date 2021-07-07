@@ -13,9 +13,13 @@ use rust_gpu_tools::*;
 use std::any::TypeId;
 use std::sync::Arc;
 
-const MAX_WINDOW_SIZE: usize = 10;
+use std::sync::mpsc;
+extern crate scoped_threadpool;
+use scoped_threadpool::Pool;
+
+// const MAX_WINDOW_SIZE: usize = 10;
 const LOCAL_WORK_SIZE: usize = 256;
-const MEMORY_PADDING: f64 = 0.2f64; // Let 20% of GPU memory be free
+// const MEMORY_PADDING: f64 = 0.1f64; // Let 20% of GPU memory be free
 
 pub fn get_cpu_utilization() -> f64 {
     use std::env;
@@ -260,11 +264,11 @@ where
     pub fn create(priority: bool) -> GPUResult<MultiexpKernel<E>> {
         let lock = locks::GPULock::lock();
 
-        let devices = opencl::Device::all()?;
+        let devices = opencl::Device::all();
 
         let kernels: Vec<_> = devices
             .into_iter()
-            .map(|d| (d.clone(), SingleMultiexpKernel::<E>::create(d, priority)))
+            .map(|d| (d.clone(), SingleMultiexpKernel::<E>::create(d.clone(), priority)))
             .filter_map(|(device, res)| {
                 if let Err(ref e) = res {
                     error!(
