@@ -244,6 +244,15 @@ where
     }
 }
 
+// A struct that containts several multiexp kernels for different devices
+pub struct MultiexpKernel<E>
+where
+    E: Engine,
+{
+    kernels: Vec<SingleMultiexpKernel<E>>,
+    _lock: locks::GPULock, // RFC 1857: struct fields are dropped in the same order as they are declared.
+}
+
 impl<E> MultiexpKernel<E>
 where
     E: Engine,
