@@ -20,7 +20,7 @@ use scoped_threadpool::Pool;
 
 const MAX_WINDOW_SIZE: usize = 11;
 const LOCAL_WORK_SIZE: usize = 256;
-const MEMORY_PADDING: f64 = 0.15f64; // Let 20% of GPU memory be free
+const MEMORY_PADDING: f64 = 0.2f64; // Let 20% of GPU memory be free
 
 pub fn get_cpu_utilization() -> f64 {
     use std::env;
@@ -319,10 +319,10 @@ where
                             let size_result = std::mem::size_of::<<G as CurveAffine>::Projective>();
                             info!("GABEDEBUG: start size_result:{}, jack_chunk:{},", size_result,jack_chunk);
                             if size_result > 144 {
-                                jack_chunk = (jack_chunk as f64 / 14f64).ceil() as usize;
+                                jack_chunk = (jack_chunk as f64 / 15f64).ceil() as usize;
                                 info!("GABEDEBUG: >144 size_result:{}, jack_chunk:{},", size_result,jack_chunk);
                             }else{
-                                jack_chunk = (jack_chunk as f64 / 1.1f64).ceil() as usize;
+                                jack_chunk = (jack_chunk as f64 / 1.2f64).ceil() as usize;
                                 info!("GABEDEBUG: <=144 size_result:{}, jack_chunk:{},", size_result,jack_chunk);
                             }
                             info!("GABEDEBUG: end size_result:{}, jack_chunk:{},", size_result,jack_chunk);
