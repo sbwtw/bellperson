@@ -301,72 +301,55 @@ where
 
         let mut acc = <G as CurveAffine>::Projective::zero();
 
-        // concurrent computing
-        let (tx_gpu, rx_gpu) = mpsc::channel();
-        let (tx_cpu, rx_cpu) = mpsc::channel();
-        let mut scoped_pool = Pool::new(2);
-        scoped_pool.scoped(|scoped| {
-            // GPU
-            scoped.execute(move || {
-                let results = if n > 0 {
-                    bases
-                        .par_chunks(chunk_size)
-                        .zip(exps.par_chunks(chunk_size))
-                        .zip(self.kernels.par_iter_mut())
-                        .map(|((bases, exps), kern)| -> Result<<G as CurveAffine>::Projective, GPUError> {
-                            let mut acc = <G as CurveAffine>::Projective::zero();
-                            let mut jack_chunk = kern.n;
-                            let size_result = std::mem::size_of::<<G as CurveAffine>::Projective>();
-                            info!("GABEDEBUG: start size_result:{}, jack_chunk:{},", size_result,jack_chunk);
-                            if size_result > 144 {
-                                jack_chunk = (jack_chunk as f64 / 15f64).ceil() as usize;
-                                info!("GABEDEBUG: >144 size_result:{}, jack_chunk:{},", size_result,jack_chunk);
-                            }else{
-                                jack_chunk = (jack_chunk as f64 / 1.2f64).ceil() as usize;
-                                info!("GABEDEBUG: <=144 size_result:{}, jack_chunk:{},", size_result,jack_chunk);
-                            }
-                            info!("GABEDEBUG: end size_result:{}, jack_chunk:{},", size_result,jack_chunk);
-                            for (bases, exps) in bases.chunks(jack_chunk).zip(exps.chunks(jack_chunk)) {
-                                let result = kern.multiexp(bases, exps, bases.len())?;
-                                acc.add_assign(&result);
-                            }
+        let results = crate::multicore::THREAD_POOL.install(|| {
+            if n > 0 {
+                bases
+               .par_chunks(chunk_size)
+               .zip(exps.par_chunks(chunk_size))
+               .zip(self.kernels.par_iter_mut())
+               .map(|((bases, exps), kern)| -> Result<<G as CurveAffine>::Projective, GPUError> {
+                   let mut acc = <G as CurveAffine>::Projective::zero();
+                   let mut jack_chunk = kern.n;
+                   info!("GABEDEBUG: start size_result:{}, jack_chunk:{},", size_result,jack_chunk);
+                   if size_result > 144 {
+                       jack_chunk = (jack_chunk as f64 / 15f64).ceil() as usize;
+                       info!("GABEDEBUG: >144 size_result:{}, jack_chunk:{},", size_result,jack_chunk);
+                   }else{
+                       jack_chunk = (jack_chunk as f64 / 1.2f64).ceil() as usize;
+                       info!("GABEDEBUG: <=144 size_result:{}, jack_chunk:{},", size_result,jack_chunk);
+                   }
+                   for (bases, exps) in bases.chunks(jack_chunk).zip(exps.chunks(jack_chunk)) {
+                       match kern.multiexp(bases, exps, bases.len()) {
+                           Ok(result) => acc.add_assign(&result),
+                           Err(e) => return Err(e),
+                       }
+                   }
 
-                            Ok(acc)
-                        })
-                        .collect::<Vec<_>>()
-                } else {
-                    Vec::new()
-                };
-
-                tx_gpu.send(results).unwrap();
-
-            });
-            // CPU
-            scoped.execute(move || {
-                let cpu_acc = cpu_multiexp(
-                    &pool,
-                    (Arc::new(cpu_bases.to_vec()), 0),
-                    FullDensity,
-                    Arc::new(cpu_exps.to_vec()),
-                    &mut None,
-                );
-                let cpu_r = cpu_acc.wait().unwrap();
-
-                tx_cpu.send(cpu_r).unwrap();
-            });
+                   Ok(acc)
+               })
+               .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            }
         });
 
-        // waiting results...
-        let results = rx_gpu.recv().unwrap();
-        let cpu_r = rx_cpu.recv().unwrap();
+        let cpu_acc = cpu_multiexp(
+            &pool,
+            (Arc::new(cpu_bases.to_vec()), 0),
+            FullDensity,
+            Arc::new(cpu_exps.to_vec()),
+            &mut None,
+        );
 
         for r in results {
             match r {
                 Ok(r) => acc.add_assign(&r),
                 Err(e) => return Err(e),
             }
-            acc.add_assign(&cpu_r);
         }
+
+        acc.add_assign(&cpu_acc.wait().unwrap());
+
         Ok(acc)
     }
 }
