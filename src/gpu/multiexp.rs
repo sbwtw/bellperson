@@ -310,6 +310,7 @@ where
                .map(|((bases, exps), kern)| -> Result<<G as CurveAffine>::Projective, GPUError> {
                    let mut acc = <G as CurveAffine>::Projective::zero();
                    let mut jack_chunk = kern.n;
+                   let size_result = std::mem::size_of::<<G as CurveAffine>::Projective>();
                    info!("GABEDEBUG: start size_result:{}, jack_chunk:{},", size_result,jack_chunk);
                    if size_result > 144 {
                        jack_chunk = (jack_chunk as f64 / 15f64).ceil() as usize;
